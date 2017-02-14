@@ -53,13 +53,17 @@ ImageIO * heightmapImage;
 
 OpenGLMatrix* matrix;
 BasicPipelineProgram* pipelineProgram;
-GLuint buffer;
+GLuint elementBuffer; // for positions
+GLuint indexBuffer; // for landIndices
 GLuint vao;
 
 // etc.
-int numVertices = 3;
-float positions[3][3] = {{0.0, 0.0, -1.0}, {1.0,0.0,-1.0}, {0.0, 1.0, -1.0}};
-float colors[3][4] = {{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, {0.0, 0.0, 1.0, 1.0}};
+int numVertices;
+//float positions[3][3] = {{0.0, 0.0, -1.0}, {1.0,0.0,-1.0}, {0.0, 1.0, -1.0}};
+//float colors[3][4] = {{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, {0.0, 0.0, 1.0, 1.0}};
+float* positions;
+float* colors;
+GLuint* landIndices; // The index to draw to.
 
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
@@ -81,7 +85,7 @@ void bindProgram() {
     GLuint program = pipelineProgram->GetProgramHandle();
 
     // Bind
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, elementBuffer);
     pipelineProgram->Bind();
     glBindVertexArray(vao);
 
@@ -108,14 +112,18 @@ void displayFunc()
     // set up camera position
     matrix->SetMatrixMode(OpenGLMatrix::ModelView);
     matrix->LoadIdentity();
-    matrix->LookAt(0, 0, 3.4522649466, 0, 0, 0, 0, 1, 0);// default camera
-    //matrix->Rotate(0, 1.0, 0.0, 0.0);
-    //matrix->Rotate(0, 0.0, 1.0, 0.0);
+    matrix->LookAt(0, 100, 50, 0, 0, 0, 0, 1, 0);// default camera
+    matrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
+    matrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
+    matrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
+    matrix->Translate(landTranslate[0], landTranslate[1], landTranslate[2]);
+    matrix->Scale(landScale[0], landScale[1], landScale[2]);
     //matrix->Rotate(0, 0.0, 0.0, 1.0);
 
     bindProgram();
     // render
-    glDrawArrays(GL_TRIANGLES, 0, numVertices);
+    glDrawArrays(GL_POINTS, 0, numVertices);
+    //glDrawElements(GL_TRIANGLES, numVertices*2, GL_UNSIGNED_BYTE, (GLvoid*)0);
 
     glBindVertexArray(0); // unbind vao
     glutSwapBuffers();
@@ -138,7 +146,7 @@ void reshapeFunc(int w, int h)
     // Set up perspective matrix
     matrix->SetMatrixMode(OpenGLMatrix::Projection);
     matrix->LoadIdentity();
-    matrix->Perspective(45.0, 1.0*1280/720, 0.01, -4.0);
+    matrix->Perspective(45.0, 1.0*1280/720, 0.01, 1000);
     matrix->SetMatrixMode(OpenGLMatrix::ModelView);
 }
 
@@ -293,7 +301,7 @@ void initVAO() {
 
     GLuint loc2 = glGetAttribLocation(program, "color");
     glEnableVertexAttribArray(loc2);
-    offset = (const void*)sizeof(positions);
+    offset = (const void*)(numVertices*sizeof(float)*3);
     glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0, offset);
 
     glBindVertexArray(0); // Unbind VAO
@@ -302,13 +310,30 @@ void initVAO() {
 
 void initVBO() {
     // load buffer
-    glGenBuffers(1, &buffer);
-    glBindBuffer(GL_ARRAY_BUFFER, buffer);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(positions) + sizeof(colors), NULL, GL_STATIC_DRAW);
+    // glGenBuffers(1, &buffer);
+    // glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    // glBufferData(GL_ARRAY_BUFFER, sizeof(positions) + sizeof(colors), NULL, GL_STATIC_DRAW);
+    // int positionsArraySize = numVertices*sizeof(float)*3;
+    // int colorsArraySize = numVertices*sizeof(float)*4;
+    // glBufferData(GL_ARRAY_BUFFER, positionsArraySize + colorsArraySize, NULL, GL_STATIC_DRAW);
+
+    // Element array, for all vertices
+    glGenBuffers(1, &elementBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, elementBuffer);
+    //glBufferData(GL_ARRAY_BUFFER, numVertices, NULL, GL_STATIC_DRAW);
+    int positionsArraySize = numVertices*sizeof(float)*3;
+    int colorsArraySize = numVertices*sizeof(float)*4;
+    glBufferData(GL_ARRAY_BUFFER, positionsArraySize + colorsArraySize, NULL, GL_STATIC_DRAW);
 
     // Put data in buffer
-    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(positions), positions);
-    glBufferSubData(GL_ARRAY_BUFFER, sizeof(positions), sizeof(colors), colors);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, positionsArraySize, positions);
+    glBufferSubData(GL_ARRAY_BUFFER, positionsArraySize, colorsArraySize, colors);
+
+    // Index array
+    // int landIndicesSize = numVertices * 2;
+    // glGenBuffers(1, &indexBuffer);
+    // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    // glBufferData(GL_ELEMENT_ARRAY_BUFFER, landIndicesSize, landIndices, GL_STATIC_DRAW);
 }
 
 void initScene(int argc, char *argv[])
@@ -321,9 +346,69 @@ void initScene(int argc, char *argv[])
     exit(EXIT_FAILURE);
     }
 
+    // --- [Construct positions and colors arrays] ---
+    int img_height = heightmapImage->getHeight();
+    int img_width = heightmapImage->getWidth();
+    numVertices = img_height * img_width;
+
+    // Malloc positions
+    positions = (float*)malloc(numVertices*sizeof(float)*3);
+    colors = (float*)malloc(numVertices*sizeof(float)*4);
+
+    // Fill element buffer
+    int counter = 0;
+    for(int i=0; i<img_height; i++) {
+        for(int j=0; j<img_width; j++) {
+            float x = i;
+            float y = heightmapImage->getPixel(i, j, 0)/256.0;
+            float z = -1*j;
+            int startPos = 3*(i*img_width + j);
+            positions[startPos] = x;
+            positions[startPos + 1] = y;
+            positions[startPos + 2] = z;
+        }
+    }
+
+    // Fill indices
+    // counter = 0;
+    // for(int i=0; i<img_height-1; i++) {
+    //     for(int j=0; j<img_width-1; j++) {
+    //         // Lower vertex
+    //         landIndices[counter] = i*img_width+j;
+    //         landIndices[counter] = i*img_width+j+1;
+    //         landIndices[counter] = i*img_width+j+2;
+    //         //Upper diagonal vertex
+    //
+    //
+    //
+    //         // // lower triangle
+    //         // landIndices[counter] = i*img_width+j;
+    //         // counter++;
+    //         // landIndices[counter] = i*img_width+j+1;
+    //         // counter++;
+    //         // landIndices[counter] = (i+1)*img_width+j+1;
+    //         // counter++;
+    //         // // upper triangle
+    //         // landIndices[counter] = i*img_width+j;
+    //         // counter++;
+    //         // landIndices[counter] = (i+1)*img_width+j;
+    //         // counter++;
+    //         // landIndices[counter] = (i+1)*img_width+j+1;
+    //         // counter++;
+    //     }
+    // }
+
+    for(int i=0; i<numVertices*4; i+=4) {
+        colors[i] = 1; // R
+        colors[i + 1] = 0; // G
+        colors[i + 2] = 0; // B
+        colors[i + 3] = 1; // alpha
+    }
+
+
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
-    // do additional initialization here...
+    // --- [Matrix, VBO, PipelineProgram, and VAO initialization] ---
     matrix = new OpenGLMatrix();
     initVBO();
     initPipelineProgram();
@@ -390,4 +475,6 @@ int main(int argc, char *argv[])
 
     // sink forever into the glut loop
     glutMainLoop();
+    free(positions);
+    free(colors);
 }
