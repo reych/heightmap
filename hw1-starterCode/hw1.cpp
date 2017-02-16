@@ -40,6 +40,9 @@ int rightMouseButton = 0; // 1 if pressed, 0 if not
 typedef enum { ROTATE, TRANSLATE, SCALE } CONTROL_STATE;
 CONTROL_STATE controlState = ROTATE;
 
+typedef enum { POINTS, WIRE, MESH} RENDER_STATE;
+RENDER_STATE renderState = MESH;
+
 // state of the world
 float landRotate[3] = { 0.0f, 0.0f, 0.0f };
 float landTranslate[3] = { 0.0f, 0.0f, 0.0f };
@@ -54,16 +57,24 @@ ImageIO * heightmapImage;
 OpenGLMatrix* matrix;
 BasicPipelineProgram* pipelineProgram;
 GLuint elementBuffer; // for positions
-GLuint indexBuffer; // for landIndices
+GLuint indexBuffer; // for meshIndicies
+GLuint lineIndexBuffer; // for wireframe
 GLuint vao;
 
-// etc.
 int numVertices;
+int img_height;
+int img_width;
+int polyCount; // number of triangles
+int numQuadEdges; // number of lines if mesh divided into quads
 //float positions[3][3] = {{0.0, 0.0, -1.0}, {1.0,0.0,-1.0}, {0.0, 1.0, -1.0}};
 //float colors[3][4] = {{1.0, 0.0, 0.0, 1.0}, {0.0, 1.0, 0.0, 1.0}, {0.0, 0.0, 1.0, 1.0}};
+
+
+// Position, color, index arrays
 float* positions;
 float* colors;
-GLuint* landIndices; // The index to draw to.
+GLuint* meshIndices; // The index to draw to for mesh.
+GLuint* lineIndices; // The index to draw to for wireframe.
 
 // write a screenshot to the specified filename
 void saveScreenshot(const char * filename)
@@ -84,10 +95,10 @@ void saveScreenshot(const char * filename)
 void bindProgram() {
     GLuint program = pipelineProgram->GetProgramHandle();
 
-    // Bind
+    // Bind --- bind element array in displayFunc
+    glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, elementBuffer);
     pipelineProgram->Bind();
-    glBindVertexArray(vao);
 
     // Upload model and projection matrices
     GLboolean isRowMajor = GL_FALSE;
@@ -103,6 +114,7 @@ void bindProgram() {
     float p[16]; // column-major
     matrix->GetMatrix(p);
     glUniformMatrix4fv(h_projectionViewMatrix, 1, isRowMajor, p);
+    matrix->SetMatrixMode(OpenGLMatrix::ModelView);
 
 }
 
@@ -112,18 +124,33 @@ void displayFunc()
     // set up camera position
     matrix->SetMatrixMode(OpenGLMatrix::ModelView);
     matrix->LoadIdentity();
-    matrix->LookAt(0, 100, 50, 0, 0, 0, 0, 1, 0);// default camera
+    matrix->LookAt(heightmapImage->getWidth()/2, 100, 0, 0, 0, 0, 0, 1, 0);// default camera
+    matrix->Translate(-1*img_width/2, 0, img_height/2);
     matrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
     matrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
     matrix->Rotate(landRotate[2], 0.0, 0.0, 1.0);
     matrix->Translate(landTranslate[0], landTranslate[1], landTranslate[2]);
     matrix->Scale(landScale[0], landScale[1], landScale[2]);
-    //matrix->Rotate(0, 0.0, 0.0, 1.0);
+
 
     bindProgram();
     // render
-    glDrawArrays(GL_POINTS, 0, numVertices);
-    //glDrawElements(GL_TRIANGLES, numVertices*2, GL_UNSIGNED_BYTE, (GLvoid*)0);
+    //glDrawArrays(GL_POINTS, 0, numVertices);
+    switch(renderState) {
+        case POINTS:
+            glDrawArrays(GL_POINTS, 0, numVertices);
+        break;
+
+        case WIRE:
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
+            glDrawElements(GL_LINES, numQuadEdges * 2 * sizeof(GLuint), GL_UNSIGNED_INT, (GLvoid*)0);
+        break;
+
+        case MESH:
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+            glDrawElements(GL_TRIANGLES, polyCount * 3 * sizeof(GLuint), GL_UNSIGNED_INT, (GLvoid*)0);
+        break;
+    }
 
     glBindVertexArray(0); // unbind vao
     glutSwapBuffers();
@@ -276,6 +303,21 @@ void keyboardFunc(unsigned char key, int x, int y)
       // take a screenshot
       saveScreenshot("screenshot.jpg");
     break;
+
+    case 'q':
+        cout << "Render points" << endl;
+        renderState = POINTS;
+    break;
+
+    case 'w':
+        cout << "Render wireframe" << endl;
+        renderState = WIRE;
+    break;
+
+    case 'e':
+        cout << "Render mesh" << endl;
+        renderState = MESH;
+    break;
   }
 }
 
@@ -320,7 +362,6 @@ void initVBO() {
     // Element array, for all vertices
     glGenBuffers(1, &elementBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, elementBuffer);
-    //glBufferData(GL_ARRAY_BUFFER, numVertices, NULL, GL_STATIC_DRAW);
     int positionsArraySize = numVertices*sizeof(float)*3;
     int colorsArraySize = numVertices*sizeof(float)*4;
     glBufferData(GL_ARRAY_BUFFER, positionsArraySize + colorsArraySize, NULL, GL_STATIC_DRAW);
@@ -329,11 +370,18 @@ void initVBO() {
     glBufferSubData(GL_ARRAY_BUFFER, 0, positionsArraySize, positions);
     glBufferSubData(GL_ARRAY_BUFFER, positionsArraySize, colorsArraySize, colors);
 
-    // Index array
-    // int landIndicesSize = numVertices * 2;
-    // glGenBuffers(1, &indexBuffer);
-    // glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
-    // glBufferData(GL_ELEMENT_ARRAY_BUFFER, landIndicesSize, landIndices, GL_STATIC_DRAW);
+    // Mesh index array
+    int meshIndicesSize = polyCount * 3 * sizeof(GLuint);
+    cout << meshIndicesSize << endl;
+    glGenBuffers(1, &indexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, meshIndicesSize, meshIndices, GL_STATIC_DRAW);
+
+    // Line index array
+    int lineIndicesSize = numQuadEdges * 2 * sizeof(GLuint);
+    glGenBuffers(1, &lineIndexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, lineIndicesSize, lineIndices, GL_STATIC_DRAW);
 }
 
 void initScene(int argc, char *argv[])
@@ -347,20 +395,23 @@ void initScene(int argc, char *argv[])
     }
 
     // --- [Construct positions and colors arrays] ---
-    int img_height = heightmapImage->getHeight();
-    int img_width = heightmapImage->getWidth();
+    img_height = heightmapImage->getHeight();
+    img_width = heightmapImage->getWidth();
     numVertices = img_height * img_width;
+    polyCount = (img_height-1)*(img_width-1)*2;
+    numQuadEdges = (img_width-1)*img_height + img_width * (img_height-1);
 
     // Malloc positions
     positions = (float*)malloc(numVertices*sizeof(float)*3);
     colors = (float*)malloc(numVertices*sizeof(float)*4);
+    meshIndices = (unsigned int*)malloc(polyCount*sizeof(unsigned int)*3);
+    lineIndices = (unsigned int*)malloc(numQuadEdges*sizeof(unsigned int)*2);
 
-    // Fill element buffer
-    int counter = 0;
+    // Fill positions
     for(int i=0; i<img_height; i++) {
         for(int j=0; j<img_width; j++) {
             float x = i;
-            float y = heightmapImage->getPixel(i, j, 0)/256.0;
+            float y = heightmapImage->getPixel(i, j, 0)/100;
             float z = -1*j;
             int startPos = 3*(i*img_width + j);
             positions[startPos] = x;
@@ -369,35 +420,66 @@ void initScene(int argc, char *argv[])
         }
     }
 
-    // Fill indices
-    // counter = 0;
-    // for(int i=0; i<img_height-1; i++) {
-    //     for(int j=0; j<img_width-1; j++) {
-    //         // Lower vertex
-    //         landIndices[counter] = i*img_width+j;
-    //         landIndices[counter] = i*img_width+j+1;
-    //         landIndices[counter] = i*img_width+j+2;
-    //         //Upper diagonal vertex
-    //
-    //
-    //
-    //         // // lower triangle
-    //         // landIndices[counter] = i*img_width+j;
-    //         // counter++;
-    //         // landIndices[counter] = i*img_width+j+1;
-    //         // counter++;
-    //         // landIndices[counter] = (i+1)*img_width+j+1;
-    //         // counter++;
-    //         // // upper triangle
-    //         // landIndices[counter] = i*img_width+j;
-    //         // counter++;
-    //         // landIndices[counter] = (i+1)*img_width+j;
-    //         // counter++;
-    //         // landIndices[counter] = (i+1)*img_width+j+1;
-    //         // counter++;
-    //     }
-    // }
+    // Fill mesh indices in a zigzag pattern
+    int counter = 0;
+    for(int i=0; i<img_height-1; i++) {
+        for(int j=0; j<img_width-1; j++) {
+            // Upper triangle
+            // Lower vertex
+            meshIndices[counter] = i*img_width+j;
+            counter++;
+            // Upper vertex
+            meshIndices[counter] = (i+1)*img_width+j;
+            counter++;
+            // Upper vertex diagonal
+            meshIndices[counter] = (i+1)*img_width+(j+1);
+            counter++;
 
+            // Lower triangle
+            // Lower vertex
+            meshIndices[counter] = i*img_width+j;
+            counter++;
+            // Next vertex
+            meshIndices[counter] = i*img_width+j+1;
+            counter++;
+            // Upper vertex diagonal
+            meshIndices[counter] = (i+1)*img_width+(j+1);
+            counter++;
+        }
+    }
+
+    // Fill line indices
+    counter = 0;
+    for(int i=0; i<img_height-1; i++) {
+        for(int j=0; j<img_width-1; j++) {
+            // Bottom line
+            lineIndices[counter] = i*img_width+j;
+            counter++;
+            lineIndices[counter] = i*img_width+j+1;
+            counter++;
+            // Right line
+            lineIndices[counter] = i*img_width+j+1;
+            counter++;
+            lineIndices[counter] = (i+1)*img_width+j+1;
+            counter++;
+            // if at left edge, then keep left line
+            if(j-1 < 0) {
+                lineIndices[counter] = i*img_width+j;
+                counter++;
+                lineIndices[counter] = (i+1)*img_width+j;
+                counter++;
+            }
+            // if at top, then draw the top lineIndices
+            if(i+1 > img_height-2) {
+                lineIndices[counter] = (i+1)*img_width+j;
+                counter++;
+                lineIndices[counter] = (i+1)*img_width+j;
+                counter++;
+            }
+        }
+    }
+
+    // Assign colors
     for(int i=0; i<numVertices*4; i+=4) {
         colors[i] = 1; // R
         colors[i + 1] = 0; // G
