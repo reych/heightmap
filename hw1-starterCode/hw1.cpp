@@ -133,7 +133,7 @@ void displayFunc()
     // set up camera position
     matrix->SetMatrixMode(OpenGLMatrix::ModelView);
     matrix->LoadIdentity();
-    matrix->LookAt(heightmapImage->getWidth()/2, 200, 400, 0, 0, 0, 0, 1, 0);// default camera
+    matrix->LookAt(heightmapImage->getWidth()/2, 100, 0, 0, 0, 0, 0, 1, 0);// default camera
     matrix->Translate(-1*img_width/2, 0, img_height/2);
     matrix->Rotate(landRotate[0], 1.0, 0.0, 0.0);
     matrix->Rotate(landRotate[1], 0.0, 1.0, 0.0);
@@ -143,7 +143,8 @@ void displayFunc()
 
 
     bindProgram();
-    // render points, wireframe, or mesh based on key pressed
+    // render
+    //glDrawArrays(GL_POINTS, 0, numVertices);
     switch(renderState) {
         case POINTS:
             glDrawArrays(GL_POINTS, 0, numVertices);
@@ -368,24 +369,33 @@ void initVAO() {
 }
 
 void initVBO() {
-    // Load buffer for element array, for all vertices
+    // load buffer
+    // glGenBuffers(1, &buffer);
+    // glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    // glBufferData(GL_ARRAY_BUFFER, sizeof(positions) + sizeof(colors), NULL, GL_STATIC_DRAW);
+    // int positionsArraySize = numVertices*sizeof(float)*3;
+    // int colorsArraySize = numVertices*sizeof(float)*4;
+    // glBufferData(GL_ARRAY_BUFFER, positionsArraySize + colorsArraySize, NULL, GL_STATIC_DRAW);
+
+    // Element array, for all vertices
     glGenBuffers(1, &elementBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, elementBuffer);
     int positionsArraySize = numVertices*sizeof(float)*3;
     int colorsArraySize = numVertices*sizeof(float)*4;
     glBufferData(GL_ARRAY_BUFFER, positionsArraySize + colorsArraySize, NULL, GL_STATIC_DRAW);
+
     // Put data in buffer
     glBufferSubData(GL_ARRAY_BUFFER, 0, positionsArraySize, positions);
     glBufferSubData(GL_ARRAY_BUFFER, positionsArraySize, colorsArraySize, colors);
 
-    // Load buffer for mesh index array
+    // Mesh index array
     int meshIndicesSize = polyCount * 3 * sizeof(GLuint);
     cout << meshIndicesSize << endl;
     glGenBuffers(1, &indexBuffer);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, meshIndicesSize, meshIndices, GL_STATIC_DRAW);
 
-    // Load buffer for line index array
+    // Line index array
     int lineIndicesSize = numQuadEdges * 2 * sizeof(GLuint);
     glGenBuffers(1, &lineIndexBuffer);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, lineIndexBuffer);
@@ -409,7 +419,7 @@ void initScene(int argc, char *argv[])
     polyCount = (img_height-1)*(img_width-1)*2;
     numQuadEdges = (img_width-1)*img_height + img_width * (img_height-1);
 
-    // Malloc arrays
+    // Malloc positions
     positions = (float*)malloc(numVertices*sizeof(float)*3);
     colors = (float*)malloc(numVertices*sizeof(float)*4);
     normals = (float*)malloc(numVertices*sizeof(float)*3);
@@ -420,7 +430,7 @@ void initScene(int argc, char *argv[])
     for(int i=0; i<img_height; i++) {
         for(int j=0; j<img_width; j++) {
             float x = i;
-            float y = heightmapImage->getPixel(i, j, 0)/50.0;
+            float y = heightmapImage->getPixel(i, j, 0)/100;
             float z = -1*j;
             int startPos = 3*(i*img_width + j);
             positions[startPos] = x;
