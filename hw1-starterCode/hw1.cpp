@@ -73,6 +73,7 @@ int numQuadEdges; // number of lines if mesh divided into quads
 // Position, color, index arrays
 float* positions;
 float* colors;
+float* normals;
 GLuint* meshIndices; // The index to draw to for mesh.
 GLuint* lineIndices; // The index to draw to for wireframe.
 
@@ -115,6 +116,14 @@ void bindProgram() {
     matrix->GetMatrix(p);
     glUniformMatrix4fv(h_projectionViewMatrix, 1, isRowMajor, p);
     matrix->SetMatrixMode(OpenGLMatrix::ModelView);
+
+    // Upload light direction vector
+    float view[16];
+    openGLMatrix->GetMatrix(view); // read the view matrix
+    GLint h_viewLightDirection = glGetUniformLocation(program, "viewLightDirection");
+    float lightDirection[3] = { 0, 1, 0 }; // position of the Sun
+
+
 
 }
 
@@ -340,10 +349,19 @@ void initVAO() {
     const void* offset = (const void*)0;
     glVertexAttribPointer(loc, 3, GL_FLOAT, GL_FALSE, 0, offset);
 
-    GLuint loc2 = glGetAttribLocation(program, "color");
-    glEnableVertexAttribArray(loc2);
-    offset = (const void*)(numVertices*sizeof(float)*3);
-    glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0, offset);
+    // GLuint loc2 = glGetAttribLocation(program, "color");
+    // glEnableVertexAttribArray(loc2);
+    // offset = (const void*)(numVertices*sizeof(float)*3);
+    // glVertexAttribPointer(loc2, 4, GL_FLOAT, GL_FALSE, 0, offset);
+
+    // get location index of the "normal" shader variable
+    GLuint loc3 = glGetAttribLocation(program, "normal");
+    glEnableVertexAttribArray(loc3); // enable the "normal" attribute
+    const void * offset = (const void*) sizeof(positions);
+    GLsizei stride = 0;
+    GLboolean normalized = GL_FALSE;
+    // set the layout of the “normal” attribute data
+    glVertexAttribPointer(loc, 3, GL_FLOAT, normalized, stride, offset);
 
     glBindVertexArray(0); // Unbind VAO
 
@@ -394,6 +412,7 @@ void initScene(int argc, char *argv[])
     // Malloc arrays
     positions = (float*)malloc(numVertices*sizeof(float)*3);
     colors = (float*)malloc(numVertices*sizeof(float)*4);
+    normals = (float*)malloc(numVertices*sizeof(float)*3);
     meshIndices = (unsigned int*)malloc(polyCount*sizeof(unsigned int)*3);
     lineIndices = (unsigned int*)malloc(numQuadEdges*sizeof(unsigned int)*2);
 
@@ -466,6 +485,64 @@ void initScene(int argc, char *argv[])
                 lineIndices[counter] = (i+1)*img_width+j;
                 counter++;
             }
+        }
+    }
+
+    // compute normals
+    for(int i=1; i<img_height-1; i++) {
+        for(int j=1; j<img_width-1; j++) {
+            // current vertex
+            float x0 = i;
+            float y0 = heightmapImage->getPixel(i,j);
+            float z0 = j;
+            // top vertex
+            float x1 = i;
+            float y1 = heightmapImage->getPixel(i, j+1);
+            float z1 = j+1;
+            // left vertex
+            float x2 = i-1;
+            float y2 = heightmapImage->getPixel(i-1, j);
+            float z2 = j;
+            // bottom vertex
+            float x3 = i;
+            float y3 = heightmapImage->getPixel(i, j-1);
+            float z3 = j-1;
+            // right vertex
+            float x4 = i+1;
+            float y4 = heightmapImage->getPixel(i+1, j);
+            float z4 = j;
+            // tangent to top vertex
+            float topTangentX = x1 - x0;
+            float topTangentY = y1 - y0;
+            float topTangentZ = z1 - z0;
+            // tangent to left vertex
+            float leftTangentX = x2 - x0;
+            float leftTangentY = y2 - y0;
+            float leftTangentZ = z2 - z0;
+            // tangent to bottom vertex
+            float bottomTangentX = x3 - x0;
+            float bottomTangentY = y3 - y0;
+            float bottomTangentZ = z3 - z0;
+            // tangent to right vertex
+            float rightTangentX = x4 - x0;
+            float rightTangentY = y4 - y0;
+            float rightTangentZ = z4 - z0;
+            // cross product top and left
+            float topNormalX = (topTangentY * leftTangentZ) - (topTangentZ * leftTangentY);
+            float topNormalY = (topTangentZ * leftTangentX) - (topTangentX * leftTangentZ);
+            float topNormalZ = (topTangentX * leftTangentY) - (topTangentY * leftTangentX);
+            // cross product left and bottom
+            float leftNormalX = (leftTangentY * bottomTangentZ) - (leftTangentZ * bottomTangentY);
+            float leftNormalY = (leftTangentZ * bottomTangentX) - (leftTangentX * bottomTangentZ);
+            float leftNormalZ = (leftTangentX * bottomTangentY) - (leftTangentY * bottomTangentX);
+            // cross product bottom and right
+            float bottomNormalX = (bottomTangentY * rightTangentZ) - (bottomTangentZ * rightTangentY);
+            float bottomNormalY = (bottomTangentZ * rightTangentX) - (bottomTangentX * rightTangentZ);
+            float bottomNormalZ = (bottomTangentX * rightTangentY) - (bottomTangentY * rightTangentX);
+            // cross product right and top
+            float rightNormalX = (rightTangentY * topTangentZ) - (rightTangentZ * topTangentY);
+            float rightNormalY = (rightTangentZ * topTangentX) - (rightTangentX * topTangentZ);
+            float rightNormalZ = (rightTangentX * topTangentY) - (rightTangentY * topTangentX);
         }
     }
 
